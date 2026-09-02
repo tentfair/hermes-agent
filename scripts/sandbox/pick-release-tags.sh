@@ -20,9 +20,11 @@
 #   --repo    repository to read tags from (default: this checkout).
 #
 # Reads tags from the local checkout, so it needs one fetched with tags
-# (actions/checkout with fetch-depth: 0, or `fetch-tags: true`). A shallow
-# checkout has no tags and this exits non-zero rather than silently emitting an
-# empty matrix.
+# (actions/checkout with fetch-depth: 0, or `fetch-tags: true`). If no
+# vYYYY.M.D release tags are found (a shallow checkout that forgot to fetch
+# tags, or simply a repo/fork that hasn't cut a release yet), this emits an
+# empty JSON array rather than failing -- there is nothing to sample yet, and
+# a hard failure would otherwise repeat on every scheduled run indefinitely.
 #
 # Only vYYYY.M.D[.N] release tags are considered; the repo also carries
 # backup/* and one-off tags that are not releases.
@@ -74,10 +76,15 @@ mapfile -t tags < <(
 
 total="${#tags[@]}"
 if [ "$total" -eq 0 ]; then
-  echo "error: no release tags found in $REPO" >&2
-  echo '       A shallow clone has no tags: fetch with tags (actions/checkout' >&2
-  echo '       with fetch-depth: 0, or fetch-tags: true).' >&2
-  exit 1
+  # No release tags to sample. This is expected the first time this runs
+  # against a repo/fork that hasn't cut a release yet (or, transiently, a
+  # checkout that forgot to fetch tags -- fetch-depth: 0, or fetch-tags:
+  # true). Either way there is nothing to build a matrix from, so emit an
+  # empty one and let the caller skip cleanly rather than failing every
+  # scheduled run until a release exists.
+  echo "warning: no vYYYY.M.D release tags found in $REPO; emitting an empty matrix" >&2
+  printf '[]\n'
+  exit 0
 fi
 
 if [ "$total" -le "$COUNT" ]; then
